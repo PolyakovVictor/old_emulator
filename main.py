@@ -7,10 +7,33 @@ from pyboy import PyBoy
 from tinygrad.tensor import Tensor
 from tinygrad.device import Device
 from collections import deque
+from pyboy.utils import WindowEvent
 
 
 MAX_BUFF = 1000
 BATCH_SIZE = 32
+
+
+ACTIONS = [
+    [], # Do nothing
+    [WindowEvent.PRESS_ARROW_RIGHT], # 1: Right
+    [WindowEvent.PRESS_ARROW_RIGHT, WindowEvent.PRESS_BUTTON_A], # 2: Right + Jump
+    [WindowEvent.PRESS_BUTTON_A], # 3: Jump
+    [WindowEvent.PRESS_ARROW_LEFT],
+]
+
+
+RELEASE_ALL = [
+    WindowEvent.RELEASE_ARROW_RIGHT,
+    WindowEvent.RELEASE_ARROW_LEFT,
+    WindowEvent.RELEASE_BUTTON_A,
+    WindowEvent.RELEASE_BUTTON_B
+]
+
+
+def apply_action(game: PyBoy, action_idx: int):
+    for release_evt in RELEASE_ALL:
+        game.send_input(release_evt)
 
 
 class ReplayBuffer:
@@ -60,6 +83,7 @@ while step < 10000:
     state = np.array(frame_stack) # 4,72,80
 
     action = random.randint(0,4)
+    apply_action(game, action)
     
     game.tick()
     next_frame = preprocess_frame(game.screen.ndarray)
