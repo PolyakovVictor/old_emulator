@@ -1,12 +1,13 @@
 import random
 import numpy as np
 import tinygrad.nn as nn
+import io
 
 from PIL import Image
 from pyboy import PyBoy
 from tinygrad.tensor import Tensor
 from tinygrad.device import Device
-from tinygrad.nn.state import get_parameters
+from tinygrad.nn.state import get_parameters, get_state_dict, load_state_dict
 from collections import deque
 from pyboy.utils import WindowEvent
 
@@ -14,10 +15,11 @@ from pyboy.utils import WindowEvent
 Tensor.training = True
 
 
-MAX_BUFF = 1000
+MAX_BUFF = 10000
 BATCH_SIZE = 32
 GAMMA = 0.99
 LR = 0.00025
+TARGET_UPDATE_FREQ = 1000
 
 
 ACTIONS = [
@@ -68,6 +70,14 @@ class MarioEnv:
     def __init__(self, rom_path='game_mario.gb'):
         self.game = PyBoy(rom_path)
         self.game.set_emulation_speed(0) # no speed limit
+        for _ in range(100):
+            self.game.tick()
+
+        self.init_state = io.BytesIO() if 'io' in globals() else None
+        self.save_file = open("init.state", "wb")
+        self.save_file.close()
+        self.game.save_state(open("init.state", "wb"))
+
         self.prior_x = self.get_mario_x()
 
     def get_mario_x(self,):
@@ -78,7 +88,10 @@ class MarioEnv:
     def is_dead(self,):
         return self.game.memory[0xC0AC] == 0x06
 
-    def reset(self): self.prior_x = self.get_mario_x()
+    def reset(self):
+        with open("init.state", "rb") as f:
+            self.game.load_state(f)
+        self.prior_x = self.get_mario_x()
     
     def step(self, action_idx, frame_skip=4):
         apply_action(self.game, action_idx)
@@ -94,9 +107,9 @@ class MarioEnv:
 
         done = self.is_dead()
         if done:
-            reward = -100.00
+            reward = -50.00
         
-        reward -= 0.1
+        reward -= 0.05
 
         return reward, done
 
@@ -129,24 +142,29 @@ mario = MarioEnv()
 game = mario.game
 
 policy_net = DQN()
+target_net = DQN()
+
+load_state_dict(target_net, get_state_dict(policy_net))
+
 optimizer = nn.optim.Adam(get_parameters(policy_net), lr=LR)
 
 buffer = ReplayBuffer(MAX_BUFF)
-frame_stack = deque(maxlen=4)
 
+def init_frame_stack():
+    stack = deque(maxlen=4)
+    frame = preprocess_frame(game.screen.ndarray)
+    for _ in range(4):
+        stack.append(frame)
+    return stack
 
-initial_frame = preprocess_frame(game.screen.ndarray)
-
-for _ in range(4):
-    frame_stack.append(initial_frame)
-
+frame_stack = init_frame_stack()
 
 epsilon = 1.0
 EPS_MIN = 0.1
 EPS_DECAY = 0.9995
 
 step = 0
-while step < 10000:
+while step < 100000:
     step += 1
     state = np.array(frame_stack) # 4,72,80
     
@@ -167,12 +185,12 @@ while step < 10000:
 
 
     buffer.push(state, action, reward, next_state, done)
-    if done: mario.reset()
+    if done: mario.reset(); frame_stack = init_frame_stack()
     if len(buffer) >= BATCH_SIZE and step % 4 == 0:
         b_s, b_a, b_r, b_ns, b_d = buffer.sample(BATCH_SIZE)
         q_all = policy_net(b_s)
         q_values = (q_all * b_a.one_hot(5)).sum(axis=1)
-        next_q_all = policy_net(b_ns).detach()
+        next_q_all = target_net(b_ns).detach()
         max_next_q = next_q_all.max(axis=1)
         target_q = b_r + (GAMMA * max_next_q * (1.0 - b_d))
         loss = ((q_values - target_q) ** 2).mean()
@@ -181,6 +199,9 @@ while step < 10000:
         optimizer.step()
         if step % 500 == 0:
             print(f"Step: {step} | Loss: {loss.numpy():.4f} | Epsilon: {epsilon:.3f}")
+    
+    if step % TARGET_UPDATE_FREQ == 0:
+        load_state_dict(target_net, get_state_dict(policy_net))
     # print(step)
 
 game.stop()
