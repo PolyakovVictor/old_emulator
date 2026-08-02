@@ -172,7 +172,7 @@ while step < 10000:
         b_s, b_a, b_r, b_ns, b_d = buffer.sample(BATCH_SIZE)
         q_all = policy_net(b_s)
         q_values = (q_all * b_a.one_hot(5)).sum(axis=1)
-        next_q_all = policy_net(b_s).detach()
+        next_q_all = policy_net(b_ns).detach()
         max_next_q = next_q_all.max(axis=1)
         target_q = b_r + (GAMMA * max_next_q * (1.0 - b_d))
         loss = ((q_values - target_q) ** 2).mean()
