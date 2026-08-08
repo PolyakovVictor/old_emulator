@@ -73,10 +73,8 @@ class MarioEnv:
         for _ in range(100):
             self.game.tick()
 
-        self.init_state = io.BytesIO() if 'io' in globals() else None
-        self.save_file = open("init.state", "wb")
-        self.save_file.close()
-        self.game.save_state(open("init.state", "wb"))
+        self.init_state = io.BytesIO()
+        self.game.save_state(self.init_state)
 
         self.prior_x = self.get_mario_x()
 
@@ -89,8 +87,8 @@ class MarioEnv:
         return self.game.memory[0xC0AC] == 0x06
 
     def reset(self):
-        with open("init.state", "rb") as f:
-            self.game.load_state(f)
+        self.init_state.seek(0)
+        self.game.load_state(self.init_state)
         self.prior_x = self.get_mario_x()
     
     def step(self, action_idx, frame_skip=4):
@@ -103,7 +101,6 @@ class MarioEnv:
         
         reward = float(current_x - self.prior_x)
         self.prior_x = current_x
-        
 
         done = self.is_dead()
         if done:
@@ -117,7 +114,7 @@ class MarioEnv:
 
 class DQN:
     def __init__(self) -> None:
-        self.conv1 = nn.Conv2d(4,16,kernel_size=5,stride=2)
+        self.conv1 = nn.Conv2d(4,16,kernel_size=5,stride=2) # (1,16,k=5,s=2)
         self.conv2 = nn.Conv2d(16,32,kernel_size=3,stride=2)
         
         self.fc1 = nn.Linear(32 * 16 * 18, 256)
