@@ -99,17 +99,29 @@ class MarioEnv:
         
         current_x = self.get_mario_x()
         
-        reward = float(current_x - self.prior_x)
+        dx = current_x - self.prior_x
         self.prior_x = current_x
 
         done = self.is_dead()
         if done:
-            reward = -50.00
+            reward = -1.00
+        elif dx > 0:
+            reward = 1.0
+        elif dx < 0:
+            reward = -0.5
+        else:
+            reward = -0.01
         
-        reward -= 0.05
-
         return reward, done
 
+
+def computer_huber_loss(y_pred, y_true, delta=1.0):
+    error: Tensor = y_pred - y_true
+    abs_error = error.abs()
+    quadratic = abs_error.clip(0, delta)
+    linear = abs_error-quadratic
+    loss = 0.5 * (quadratic ** 2) + delta * linear
+    return loss.mean()
  
 
 class DQN:
@@ -190,7 +202,7 @@ while step < 100000:
         next_q_all = target_net(b_ns).detach()
         max_next_q = next_q_all.max(axis=1)
         target_q = b_r + (GAMMA * max_next_q * (1.0 - b_d))
-        loss = ((q_values - target_q) ** 2).mean()
+        loss = computer_huber_loss(q_values, target_q)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
