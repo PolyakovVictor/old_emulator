@@ -141,10 +141,7 @@ class DQN:
 
 
 def preprocess_frame(raw_frame):
-    rgb = raw_frame[:, :, :3]
-    gray = np.dot(rgb, [0.299, 0.587, 0.144]).astype(np.uint8)
-    downsampled = gray[::2, ::2]
-    return downsampled
+    return raw_frame[::2, ::2, 0]
 
 
 mario = MarioEnv()
@@ -197,11 +194,15 @@ while step < 100000:
     if done: mario.reset(); frame_stack = init_frame_stack()
     if len(buffer) >= BATCH_SIZE and step % 4 == 0:
         b_s, b_a, b_r, b_ns, b_d = buffer.sample(BATCH_SIZE)
+        # double DQN mechanic (remove overestimation bias)
+        next_q_policy = policy_net(b_ns)
+        best_actions = next_q_policy.argmax(axis=1)
+
+        next_q_target = target_net(b_ns).detach()
+        max_next_q =(next_q_target * best_actions.one_hot(5)).sum(axis=1)
+        target_q = b_r + (GAMMA * max_next_q * (1.0 - b_d))
         q_all = policy_net(b_s)
         q_values = (q_all * b_a.one_hot(5)).sum(axis=1)
-        next_q_all = target_net(b_ns).detach()
-        max_next_q = next_q_all.max(axis=1)
-        target_q = b_r + (GAMMA * max_next_q * (1.0 - b_d))
         loss = computer_huber_loss(q_values, target_q)
         optimizer.zero_grad()
         loss.backward()
